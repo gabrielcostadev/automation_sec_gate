@@ -1,0 +1,16 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# C extensions
+*.so
+
+# Esp32 Credentials
+*/secrets.h
+
+# Virtual environments
+.venv

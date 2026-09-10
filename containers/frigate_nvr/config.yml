@@ -1,0 +1,27 @@
+mqtt:
+  enabled: true
+  host: 192.168.1.200 # O Frigate exige um IP preenchido mesmo estando desativado
+
+go2rtc:
+  streams:
+    minha_webcam:
+      #- rtsp://gabriel:qwer1234@192.168.1.85:8124/output_ch1
+      - rtsp://192.168.1.7:8554/webcam
+      # - rtsp://IP_DO_SEU_NETCAM:PORTA/stream_da_webcam # Substitua pela URL RTSP do Netcam
+
+cameras:
+  camera_do_netcam:
+    ffmpeg:
+      # hwaccel_args: preset-nvidia
+      #input_args: -preset superfast -tune zerolatency
+      # input_args: -avoid_negative_ts make_zero -fflags +genpts+discardcorrupt -flags low_delay -strict experimental
+      input_args: -rtsp_transport tcp -avoid_negative_ts make_zero -fflags
+        +genpts+discardcorrupt -flags low_delay -strict experimental
+      inputs:
+        - path: rtsp://127.0.0.1:8554/minha_webcam
+          roles:
+            - detect
+    detect:
+      enabled: true # Garante que a detecção de IA está ativa
+
+version: 0.17-0

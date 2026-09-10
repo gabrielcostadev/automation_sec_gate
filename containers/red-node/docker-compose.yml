@@ -1,0 +1,12 @@
+services:
+  nodered:
+    image: nodered/node-red:latest
+    container_name: node-red
+    restart: unless-stopped
+    ports:
+      - "1880:1880"
+    user: "root"
+    volumes:
+      - ./data:/data
+    environment:
+      - TZ=America/Belem
