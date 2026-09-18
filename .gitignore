@@ -11,6 +11,8 @@ wheels/
 
 # Esp32 Credentials
 */secrets.h
+*/secrets.cpp
+*/config.h
 
 # Virtual environments
 .venv

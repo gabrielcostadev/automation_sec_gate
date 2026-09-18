@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard Frigate - Proxy Frontend</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #121212;
+            color: #ffffff;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding-top: 50px;
+            min-height: 100vh;
+            margin: 0;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        .config-box {
+            background: #1e1e1e;
+            padding: 15px 25px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+        .config-box label {
+            font-weight: bold;
+            color: #aaa;
+        }
+        input[type="text"] {
+            padding: 10px;
+            font-size: 16px;
+            border-radius: 5px;
+            border: 1px solid #333;
+            background: #2a2a2a;
+            color: white;
+            width: 200px;
+        }
+        .video-container {
+            background: #000;
+            border: 2px solid #333;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 8px 20px rgba(0,0,0,0.6);
+            width: 100%;
+            max-width: 800px;
+            aspect-ratio: 16 / 9;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            position: relative;
+        }
+        /* Garantindo que o vídeo preencha o container */
+        video, img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: none; /* Fica oculto até ser ativado */
+        }
+        .controls {
+            margin-top: 25px;
+            display: flex;
+            gap: 15px;
+        }
+        button {
+            background-color: #0056b3;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 15px;
+            font-weight: bold;
+            transition: background 0.3s ease;
+        }
+        button:hover {
+            background-color: #007bff;
+        }
+        .btn-mjpeg {
+            background-color: #c44000;
+        }
+        .btn-mjpeg:hover {
+            background-color: #ff5500;
+        }
+        .status {
+            margin-top: 15px;
+            font-size: 14px;
+            font-weight: bold;
+            color: #888;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <h2>Monitoramento ao Vivo</h2>
+    </div>
+    
+    <!-- Configuração do IP para não precisar editar o código -->
+    <div class="config-box">
+        <label for="ipInput">IP da máquina do Frigate:</label>
+        <input type="text" id="ipInput" value="192.168.1.xxx" placeholder="Ex: 192.168.1.100">
+    </div>
+
+    <!-- Container Multimídia -->
+    <div class="video-container" id="playerContainer">
+        <!-- Para MSE/HLS (Proxy go2rtc) -->
+        <video id="videoPlayer" controls autoplay muted playsinline></video>
+        <!-- Para MJPEG (Frigate API Nativa) -->
+        <img id="mjpegPlayer" alt="Stream MJPEG (Sem Sinal)">
+    </div>
+
+    <!-- Botões de Ação -->
+    <div class="controls">
+        <button onclick="startStream('mse')">▶ Stream go2rtc (MSE MP4)</button>
+        <button class="btn-mjpeg" onclick="startStream('mjpeg')">▶ Stream Frigate (MJPEG)</button>
+    </div>
+
+    <div class="status" id="statusText">Aguardando iniciar stream...</div>
+
+    <script>
+        const video = document.getElementById('videoPlayer');
+        const mjpeg = document.getElementById('mjpegPlayer');
+        const statusText = document.getElementById('statusText');
+        const ipInput = document.getElementById('ipInput');
+
+        function startStream(type) {
+            const frigateIp = ipInput.value.trim();
+            if (!frigateIp || frigateIp.includes('xxx')) {
+                alert("Por favor, insira o IP correto do Frigate onde o Docker está rodando.");
+                return;
+            }
+
+            // Reseta ambos os players
+            video.pause();
+            video.removeAttribute('src');
+            video.style.display = 'none';
+            mjpeg.removeAttribute('src');
+            mjpeg.style.display = 'none';
+
+            if (type === 'mse') {
+                // Configura e exibe o Player de Vídeo (Usando o stream configurado no go2rtc)
+                const streamUrl = `http://${frigateIp}:5000/api/go2rtc/api/stream.mp4?src=minha_webcam`;
+                video.src = streamUrl;
+                video.style.display = 'block';
+                statusText.innerText = "Conectando ao go2rtc via proxy...";
+                statusText.style.color = "#aaaaaa";
+                
+                video.play().catch((e) => {
+                    console.error("Autoplay bloqueado pelo navegador:", e);
+                    statusText.innerText = "Clique no play dentro do player.";
+                });
+
+            } else if (type === 'mjpeg') {
+                // Configura e exibe o Player de Imagem (Stream de processamento do Frigate)
+                // Colocamos um cache-buster (timestamp) para forçar o recarregamento, caso falhe.
+                const streamUrl = `http://${frigateIp}:5000/api/camera_do_netcam/mjpeg?t=${new Date().getTime()}`;
+                mjpeg.src = streamUrl;
+                mjpeg.style.display = 'block';
+                statusText.innerText = "Conectando ao MJPEG Nativo...";
+                statusText.style.color = "#aaaaaa";
+            }
+        }
+
+        // Tratamento de Eventos do Vídeo (MSE)
+        video.addEventListener('playing', () => {
+            statusText.style.color = "#00ff88";
+            statusText.innerText = "Stream MSE conectado com sucesso! (Baixa latência)";
+        });
+
+        video.addEventListener('error', () => {
+            statusText.style.color = "#ff4444";
+            statusText.innerText = "Erro ao carregar vídeo. Verifique se o IP está correto e a câmera está online.";
+        });
+
+        // Tratamento de Eventos da Imagem (MJPEG)
+        mjpeg.addEventListener('load', () => {
+            statusText.style.color = "#00ff88";
+            statusText.innerText = "Stream MJPEG conectado com sucesso!";
+        });
+
+        mjpeg.addEventListener('error', () => {
+            // Ocultar em caso de erro para não ficar com icone de imagem quebrada
+            mjpeg.style.display = 'none';
+            statusText.style.color = "#ff4444";
+            statusText.innerText = "Erro ao carregar MJPEG. Câmera pode estar offline ou o nome está incorreto.";
+        });
+    </script>
+</body>
+</html>

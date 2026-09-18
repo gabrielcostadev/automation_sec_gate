@@ -8,3 +8,8 @@ dependencies = [
 	"PyQt6>=6.6",
 	"paho-mqtt>=2.0",
 ]
+
+[tool.uv.workspace]
+members = [
+    "web/backend",
+]

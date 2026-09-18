@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Frigate - Video com Canvas Inteligente</title>
+    <!-- Biblioteca MQTT para conectar ao broker via WebSockets -->
+    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+    <style>
+        body {
+            background-color: #121212;
+            color: #ffffff;
+            font-family: sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 30px;
+        }
+        
+        /* O Container deve ter 'position: relative' para segurar o video e o canvas juntos */
+        .player-wrapper {
+            position: relative;
+            width: 100%;
+            max-width: 800px;
+            aspect-ratio: 16 / 9;
+            background: #000;
+            border: 2px solid #333;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
+
+        /* Canvas absoluto e invisível ao mouse para permitir clicar no vídeo */
+        canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none; 
+        }
+    </style>
+</head>
+<body>
+
+    <h2>Stream Limpo + Detecção via Canvas</h2>
+    
+    <div class="player-wrapper">
+        <video id="videoPlayer" autoplay muted playsinline></video>
+        <canvas id="overlayCanvas"></canvas>
+    </div>
+
+    <script>
+        const FRIGATE_IP = "192.168.1.100"; // Mude para o IP do seu Frigate
+        const MQTT_WS_PORT = "9001"; // Porta padrão de WebSockets no Mosquitto
+        const CAMERA_NAME = "camera_do_netcam"; // Nome exato configurado no config.yml
+        
+        const video = document.getElementById('videoPlayer');
+        const canvas = document.getElementById('overlayCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // 1. Iniciar o Vídeo (MSE Limpo)
+        video.src = `http://${FRIGATE_IP}:5000/api/go2rtc/api/stream.mp4?src=${CAMERA_NAME}`;
+        
+        // Ajustar a resolução interna do canvas para coincidir com a do vídeo real (ex: 1920x1080)
+        video.addEventListener('loadedmetadata', () => {
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+        });
+
+        // 2. Conectar ao MQTT via WebSockets
+        // NOTA: Para isso funcionar, seu broker MQTT (ex: Mosquitto) precisa ter a porta WS habilitada.
+        const client = mqtt.connect(`ws://${FRIGATE_IP}:${MQTT_WS_PORT}`);
+
+        client.on('connect', () => {
+            console.log("Conectado ao MQTT via WebSocket!");
+            // Se inscreve no tópico de eventos do Frigate
+            client.subscribe('frigate/events', { qos: 0 });
+        });
+
+        // Armazena os objetos atuais na tela
+        let activeObjects = {};
+
+        client.on('message', (topic, message) => {
+            if (topic === 'frigate/events') {
+                const data = JSON.parse(message.toString());
+                const eventId = data.after.id;
+
+                // Apenas processa eventos da câmera atual
+                if (data.after.camera !== CAMERA_NAME) return;
+
+                if (data.type === 'new' || data.type === 'update') {
+                    // Armazena as coordenadas do objeto
+                    activeObjects[eventId] = data.after;
+                } else if (data.type === 'end') {
+                    // Remove da tela quando a detecção termina
+                    delete activeObjects[eventId];
+                }
+            }
+        });
+
+        // 3. Loop de Desenho Contínuo a 60fps
+        function renderLoop() {
+            // Limpa o frame anterior
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Desenha cada objeto ativo
+            for (let id in activeObjects) {
+                const obj = activeObjects[id];
+                
+                // Frigate envia o array 'box' no formato: [ymin, xmin, ymax, xmax]
+                const ymin = obj.box[0];
+                const xmin = obj.box[1];
+                const ymax = obj.box[2];
+                const xmax = obj.box[3];
+
+                const w = xmax - xmin;
+                const h = ymax - ymin;
+
+                // Estilo da Caixa (Ex: Vermelho, linha grossa)
+                ctx.strokeStyle = '#FF0000';
+                ctx.lineWidth = 4;
+                ctx.strokeRect(xmin, ymin, w, h);
+
+                // Estilo do Texto/Label
+                ctx.fillStyle = '#FF0000';
+                ctx.font = '24px Arial';
+                // Desenha uma faixa de fundo para o texto
+                const text = `${obj.label} (${Math.round(obj.score * 100)}%)`;
+                ctx.fillRect(xmin, ymin - 30, ctx.measureText(text).width + 10, 30);
+                
+                ctx.fillStyle = '#FFFFFF';
+                ctx.fillText(text, xmin + 5, ymin - 5);
+            }
+
+            requestAnimationFrame(renderLoop);
+        }
+
+        // Inicia o loop visual
+        renderLoop();
+
+    </script>
+</body>
+</html>

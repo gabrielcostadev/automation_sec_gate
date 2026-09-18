@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ADM Gate Cam — Portaria</title>
+  <link rel="stylesheet" href="styles.css" />
+  <!-- MQTT over WebSockets -->
+  <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">🚪</span>
+      <div>
+        <h1>ADM Gate Cam <span class="sub">· Portaria</span></h1>
+        <p class="hint">Frigate NVR + go2rtc · MQTT · Controle de portão</p>
+      </div>
+    </div>
+    <div class="top-status">
+      <span class="pill" id="mqttPill" title="Estado da conexão MQTT">● MQTT: desconectado</span>
+      <span class="pill" id="videoPill" title="Estado do vídeo">● Vídeo: parado</span>
+      <span class="clock" id="clock">--:--:--</span>
+      <button class="btn ghost" id="demoBtn" title="Simula identificações sem broker">▶ Demo</button>
+      <button class="btn ghost" id="configBtn">⚙ MQTT / Vídeo</button>
+    </div>
+  </header>
+
+  <main class="grid">
+    <!-- ================= VÍDEO ================= -->
+    <section class="card video-card">
+      <div class="card-head">
+        <h2>📹 Câmera ao vivo <span class="rec" id="recDot" hidden>● REC</span></h2>
+        <span class="mono" id="camLabel">—</span>
+      </div>
+
+      <div class="player-wrapper" id="playerWrapper">
+        <video id="video" autoplay muted playsinline></video>
+        <img id="mjpeg" alt="Stream MJPEG" />
+        <canvas id="overlay"></canvas>
+        <div class="no-signal" id="noSignal">
+          <p>Sem sinal</p>
+          <small>Configure o Frigate e clique em <b>Conectar vídeo</b></small>
+        </div>
+        <div class="gate-ribbon" id="gateRibbon" hidden>PORTÃO ABERTO</div>
+      </div>
+
+      <div class="video-controls">
+        <input id="frigateHost" type="text" placeholder="IP Frigate (ex: 192.168.1.200)" />
+        <input id="cameraInput" type="text" placeholder="Câmera (ex: camera_do_netcam)" />
+        <input id="streamInput" type="text" placeholder="Stream go2rtc (ex: minha_webcam)" />
+        <select id="modeSelect" title="Modo de vídeo">
+          <option value="mse">MSE (go2rtc mp4)</option>
+          <option value="mjpeg">MJPEG (Frigate)</option>
+        </select>
+        <button class="btn primary" id="videoBtn">▶ Conectar vídeo</button>
+        <button class="btn" id="snapBtn" title="Abrir snapshot atual">📷 Snapshot</button>
+      </div>
+      <div class="video-controls row2">
+        <label class="check"><input type="checkbox" id="boxesToggle" checked /> Caixas + rótulos</label>
+        <label class="check"><input type="checkbox" id="beepToggle" checked /> Som ao liberar</label>
+        <span class="mono small" id="videoStatus">vídeo parado</span>
+      </div>
+      <p class="legend">
+        <span><i class="sw person-ok"></i>pessoa autorizada</span>
+        <span><i class="sw person-unknown"></i>pessoa não identificada</span>
+        <span><i class="sw car"></i>veículo</span>
+        <span><i class="sw plate"></i>placa</span>
+      </p>
+    </section>
+
+    <!-- ================= LATERAL ================= -->
+    <aside class="side">
+      <section class="card gate-card">
+        <h2>Estado do portão</h2>
+        <div class="gate-banner unknown" id="gateBanner">PORTÃO<br />—</div>
+        <p class="mono" id="gateSub">Último evento: nenhum</p>
+        <div class="btn-row">
+          <button class="btn open" id="openBtn">🔓 ABRIR PORTÃO</button>
+          <button class="btn close" id="closeBtn">🔒 FECHAR</button>
+        </div>
+        <p class="hint small">Em falha de identificação, o porteiro libera manualmente por aqui.
+          Publica <span class="mono">1</span> / <span class="mono">0</span> no tópico de comando.</p>
+      </section>
+
+      <section class="card person-card" id="personCard">
+        <h2>👤 Pessoa identificada</h2>
+        <div class="person-row">
+          <div class="avatar" id="avatar">?</div>
+          <div>
+            <p class="person-name" id="personName">Nenhuma detecção</p>
+            <p class="mono small" id="personMeta">aguardando frigate/events…</p>
+            <div class="confbar"><div id="personConf"></div></div>
+          </div>
+        </div>
+        <p class="verdict ok" id="accessVerdict" hidden>✅ ACESSO LIBERADO — portão aberto</p>
+        <p class="verdict warn" id="unknownVerdict" hidden>⚠️ NÃO IDENTIFICADO — use abertura manual se necessário</p>
+      </section>
+
+      <section class="card plate-card">
+        <h2>🚗 Veículo / Placa</h2>
+        <p class="plate" id="plateText">— — —</p>
+        <p class="mono small" id="plateMeta">nenhuma placa detectada</p>
+      </section>
+    </aside>
+  </main>
+
+  <!-- ================= LOGS ================= -->
+  <section class="bottom grid2">
+    <div class="card">
+      <div class="card-head">
+        <h2>🧾 Eventos da portaria</h2>
+        <div>
+          <button class="btn xs" id="exportBtn">⬇ Exportar</button>
+          <button class="btn xs" id="clearBtn">Limpar</button>
+        </div>
+      </div>
+      <ul class="log" id="eventLog"></ul>
+    </div>
+    <div class="card">
+      <div class="card-head">
+        <h2>🔌 Tráfego MQTT <span class="mono small" id="mqttCount"></span></h2>
+        <button class="btn xs" id="clearMqttBtn">Limpar</button>
+      </div>
+      <ul class="log mono small" id="mqttLog"></ul>
+    </div>
+  </section>
+
+  <!-- ================= CONFIG ================= -->
+  <dialog id="configDialog">
+    <form method="dialog" class="dlg" id="configForm">
+      <h2>⚙ Conexão MQTT + Frigate</h2>
+      <div class="form-grid">
+        <label>Broker MQTT (host)<input id="cfgBroker" type="text" placeholder="192.168.1.200" /></label>
+        <label>Porta WebSocket<input id="cfgWsPort" type="text" placeholder="9001" /></label>
+        <label>Usuário<input id="cfgUser" type="text" placeholder="(opcional)" /></label>
+        <label>Senha<input id="cfgPass" type="password" placeholder="(opcional)" /></label>
+        <label>Tópico status do portão<input id="cfgTopicStatus" type="text" /></label>
+        <label>Tópico comando do portão<input id="cfgTopicCommand" type="text" /></label>
+        <label>Tópico eventos Frigate<input id="cfgTopicFrigate" type="text" /></label>
+        <label>Tópicos extras (vírgula)<input id="cfgExtra" type="text" placeholder="frigate/tracking, building/gate/#" /></label>
+        <label>Porta HTTP Frigate<input id="cfgFrigatePort" type="text" placeholder="5000" /></label>
+        <label>Pessoas autorizadas (vírgula)<input id="cfgAuth" type="text" placeholder="gabriel, maria" /></label>
+      </div>
+      <p class="hint small">Salvo em <span class="mono">localStorage</span>. O Mosquitto precisa expor
+        WebSocket na porta 9001 (<span class="mono">listener 9001 + protocol websockets</span>).</p>
+      <div class="btn-row end">
+        <button class="btn" value="cancel" formnovalidate>Fechar</button>
+        <button class="btn primary" id="saveConfigBtn" value="default">Salvar e conectar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div class="toasts" id="toasts"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
